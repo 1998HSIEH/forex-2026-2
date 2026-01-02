@@ -5,161 +5,114 @@ from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 # --- 頁面設定 ---
-st.set_page_config(page_title="2026 外匯雙人掘金計畫", layout="wide", page_icon="💰")
+st.set_page_config(page_title="2026 外匯雙人掘金計畫", layout="wide", page_icon="📈")
 
-# --- 側邊欄：全域參數設定 ---
+# --- 側邊欄：參數設定 ---
 with st.sidebar:
-    st.header("⚙️ 參數設定 (模擬器)")
-    st.markdown("這裡調整數值，右側報表會即時連動！")
-    
+    st.header("⚙️ 全域參數")
     exchange_rate = st.number_input("美元/台幣 匯率", value=30.0, step=0.1)
     target_return = st.slider("預期月報酬率 (%)", 1.0, 10.0, 5.0) / 100
     profit_split = st.slider("自營商分潤比例 (%)", 50, 90, 80) / 100
-    pass_months = st.number_input("考試平均通關月數 (預設)", value=2, min_value=1, step=1)
-    
-    st.divider()
-    st.info("💡 **邏輯說明**：\n\n考試倉經過「通關月數」後，下個月轉為真倉並開始計算出金。")
+    pass_months = st.number_input("考試通關所需月數", value=2, min_value=1)
 
-# --- 標題區 ---
-st.title("💰 2026 外匯雙人掘金計畫")
-st.markdown(f"**目標期間：** 2025/12 ~ 2026/12 | **預設出金邏輯：** 獲利 {target_return*100}% × 分潤 {profit_split*100}%")
-
-# --- 資料建立：依照你的規劃 ---
-# 這裡預載了你提供的所有時程表
-raw_positions = [
-    # 2025/12
-    {"owner": "我", "firm": "安達", "size": 50000, "start": "2025-12"},
-    {"owner": "男友", "firm": "安達", "size": 10000, "start": "2025-12"},
-    # 2026/02
-    {"owner": "我", "firm": "安達", "size": 100000, "start": "2026-02"},
-    {"owner": "男友", "firm": "安達", "size": 20000, "start": "2026-02"},
-    # 2026/03 (第二家)
-    {"owner": "我", "firm": "Firm B", "size": 200000, "start": "2026-03"},
-    {"owner": "男友", "firm": "Firm B", "size": 200000, "start": "2026-03"},
-    # 2026/04 (第三家)
-    {"owner": "我", "firm": "Firm C", "size": 200000, "start": "2026-04"},
-    {"owner": "男友", "firm": "Firm C", "size": 200000, "start": "2026-04"},
+# --- 資料定義：精確匹配你的描述 ---
+# 你的倉位 (總計 450,000)
+me_positions = [
+    {"firm": "安達1", "size": 50000, "start": "2025-12", "end_date": None},
+    {"firm": "安達2", "size": 100000, "start": "2026-02", "end_date": None},
+    {"firm": "自營商B", "size": 150000, "start": "2026-03", "end_date": None}, # 修正金額為達成45萬
+    {"firm": "自營商C", "size": 150000, "start": "2026-04", "end_date": None},
 ]
 
-# --- 核心計算引擎 ---
-def calculate_timeline(positions, months_to_pass):
-    timeline_data = []
-    # 設定時間範圍：2025-12 到 2026-12
-    start_date = date(2025, 12, 1)
-    end_date = date(2026, 12, 1)
-    current = start_date
+# 男友的倉位 (總計 600,000 + 放棄邏輯)
+bf_positions = [
+    {"firm": "安達(小)", "size": 10000, "start": "2025-12", "end_date": "2026-04"}, # 20萬考過後放棄
+    {"firm": "安達(大)", "size": 200000, "start": "2026-02", "end_date": None},
+    {"firm": "自營商B", "size": 200000, "start": "2026-03", "end_date": None},
+    {"firm": "自營商C", "size": 200000, "start": "2026-04", "end_date": None},
+]
 
-    cumulative_twd = 0
-
-    while current <= end_date:
-        month_str = current.strftime("%Y-%m")
-        me_payout_usd = 0
-        bf_payout_usd = 0
-        active_funded_count = 0
-        
-        details = [] # 用於存儲當月詳細狀態文字
-
-        for p in positions:
-            p_start = datetime.strptime(p["start"], "%Y-%m").date()
-            # 預計轉真倉日期 = 開始日期 + 通過月數
-            p_funded = p_start + relativedelta(months=months_to_pass)
-
-            status = ""
-            payout = 0
-
-            if current < p_start:
-                status = "未開始"
-            elif p_start <= current < p_funded:
-                status = "🔥 考試中"
-            else:
-                status = "✅ 真倉出金"
-                payout = p["size"] * target_return * profit_split
-                active_funded_count += 1
-            
-            # 累加金額
-            if payout > 0:
-                if p["owner"] == "我":
-                    me_payout_usd += payout
-                else:
-                    bf_payout_usd += payout
-                # 記錄細節用於 Tooltip 或顯示
-                details.append(f"{p['owner']} {p['firm']} {p['size']/1000}k: {status}")
-
-        total_usd = me_payout_usd + bf_payout_usd
-        total_twd = total_usd * exchange_rate
-        cumulative_twd += total_twd
-
-        timeline_data.append({
-            "月份": month_str,
-            "日期": current, # 用於排序
-            "我的月出金 (TWD)": me_payout_usd * exchange_rate,
-            "男友月出金 (TWD)": bf_payout_usd * exchange_rate,
-            "合計月出金 (TWD)": total_twd,
-            "合計月出金 (USD)": total_usd,
-            "累計總出金 (TWD)": cumulative_twd,
-            "真倉數量": active_funded_count
-        })
-        
-        current += relativedelta(months=1)
+# --- 計算邏輯 ---
+def get_status_and_payout(p, current_date, pass_m):
+    start = datetime.strptime(p["start"], "%Y-%m").date()
+    funded = start + relativedelta(months=pass_m)
     
-    return pd.DataFrame(timeline_data)
+    # 處理放棄倉位的邏輯
+    if p["end_date"]:
+        end = datetime.strptime(p["end_date"], "%Y-%m").date()
+        if current_date >= end:
+            return "❌ 已放棄", 0
+            
+    if current_date < start:
+        return "⏳ 未開始", 0
+    elif start <= current_date < funded:
+        return "🔥 考試中", 0
+    else:
+        payout = p["size"] * target_return * profit_split
+        return "💰 出金中", payout
 
-# 執行計算
-df = calculate_timeline(raw_positions, pass_months)
+# --- 生成時間軸數據 ---
+timeline = pd.date_range(start="2025-12-01", end="2026-12-01", freq="MS")
+data = []
+status_records = []
 
-# --- 視覺化圖表區 ---
+for dt in timeline:
+    dt_date = dt.date()
+    month_str = dt_date.strftime("%Y-%m")
+    
+    me_payout, bf_payout = 0, 0
+    
+    # 計算我的倉位
+    for p in me_positions:
+        status, pay = get_status_and_payout(p, dt_date, pass_months)
+        me_payout += pay
+        status_records.append({"月份": month_str, "成員": "我", "倉位": f"{p['firm']}({p['size']:,})", "狀態": status})
+        
+    # 計算男友倉位
+    for p in bf_positions:
+        status, pay = get_status_and_payout(p, dt_date, pass_months)
+        bf_payout += pay
+        status_records.append({"月份": month_str, "成員": "男友", "倉位": f"{p['firm']}({p['size']:,})", "狀態": status})
 
-# 1. 關鍵指標 (KPI)
-col1, col2, col3 = st.columns(3)
-total_year_twd = df["合計月出金 (TWD)"].sum()
-max_month_twd = df["合計月出金 (TWD)"].max()
+    data.append({
+        "月份": month_str,
+        "我的月收(USD)": me_payout,
+        "男友月收(USD)": bf_payout,
+        "總月收(TWD)": (me_payout + bf_payout) * exchange_rate
+    })
 
-col1.metric("💰 2026 年度總預期收入", f"NT$ {total_year_twd:,.0f}")
-col2.metric("📈 單月最高峰值", f"NT$ {max_month_twd:,.0f}")
-col3.metric("📅 2026 年底真倉總數", f"{df.iloc[-1]['真倉數量']} 個")
+df_finance = pd.DataFrame(data)
+df_status = pd.DataFrame(status_records)
+
+# --- 網頁視覺呈現 ---
+st.title("📊 外匯進度與出金統計報表")
+
+# 第一區：關鍵數字
+c1, c2, c3 = st.columns(3)
+c1.metric("年底總倉位 (我)", "$450,000")
+c2.metric("年底總倉位 (男友)", "$600,000")
+c3.metric("2026 總預計拿回 (TWD)", f"NT$ {df_finance['總月收(TWD)'].sum():,.0f}")
 
 st.divider()
 
-# 2. 月收入堆疊圖 (Stacked Bar Chart)
-st.subheader("📊 每月現金流預測 (含台幣換算)")
-fig = px.bar(
-    df, 
-    x="月份", 
-    y=["我的月出金 (TWD)", "男友月出金 (TWD)"], 
-    title="每月預期出金 (TWD)",
-    labels={"value": "金額 (TWD)", "variable": "成員"},
-    color_discrete_map={"我的月出金 (TWD)": "#00CC96", "男友月出金 (TWD)": "#636EFA"},
-    text_auto='.2s'
-)
-# 增加總金額折線
-fig.add_scatter(
-    x=df["月份"], 
-    y=df["合計月出金 (TWD)"], 
-    mode='lines+markers', 
-    name='兩人合計',
-    line=dict(color='firebrick', width=2, dash='dot')
-)
+# 第二區：時間軸狀態表 (這是你要的細節)
+st.subheader("🗓️ 每月倉位狀態追蹤 (Timeline)")
+# 建立一個透視表讓顯示更直觀
+status_pivot = df_status.pivot(index=["成員", "倉位"], columns="月份", values="狀態")
+st.dataframe(status_pivot, use_container_width=True)
+
+st.divider()
+
+# 第三區：圖表
+st.subheader("📈 現金流預測")
+fig = px.bar(df_finance, x="月份", y=["我的月收(USD)", "男友月收(USD)"], 
+             title="雙人每月預計出金 (USD)", barmode="stack")
 st.plotly_chart(fig, use_container_width=True)
 
-# 3. 累計財富曲線
-st.subheader("🚀 財富累積曲線")
-fig_cum = px.line(
-    df, 
-    x="月份", 
-    y="累計總出金 (TWD)", 
-    markers=True,
-    title="累計落袋金額 (TWD)"
-)
-fig_cum.update_traces(line_color='#AB63FA', fill='tozeroy')
-st.plotly_chart(fig_cum, use_container_width=True)
-
-# 4. 詳細數據表
-with st.expander("查看詳細數據表 (點擊展開)"):
-    st.dataframe(
-        df[["月份", "我的月出金 (TWD)", "男友月出金 (TWD)", "合計月出金 (USD)", "合計月出金 (TWD)", "真倉數量"]].style.format({
-            "我的月出金 (TWD)": "{:,.0f}",
-            "男友月出金 (TWD)": "{:,.0f}",
-            "合計月出金 (USD)": "${:,.0f}",
-            "合計月出金 (TWD)": "NT$ {:,.0f}",
-        })
-    )
+# 第四區：詳細出金表
+with st.expander("查看每月台幣結算明細"):
+    st.table(df_finance.style.format({
+        "我的月收(USD)": "{:,.0f}",
+        "男友月收(USD)": "{:,.0f}",
+        "總月收(TWD)": "{:,.0f}"
+    }))
